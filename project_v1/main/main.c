@@ -3,54 +3,71 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "led_strip.h"
-#include "led_strip_rmt.h"
+#include "esp_log.h"
+#include "esp_err.h"
 
-#define LED_GPIO 48
-#define LED_COUNT 1
+#include "esp_adc/adc_oneshot.h"
+
+#define FSR_GPIO        5
+
+static const char *TAG = "FSR";
 
 void app_main(void)
 {
-    led_strip_handle_t led_strip;
+    ESP_LOGI(TAG, "FSR pressure sensor test started");
+    ESP_LOGI(TAG, "FSR connected to GPIO %d", FSR_GPIO);
 
-    led_strip_config_t strip_config = {
-        .strip_gpio_num = LED_GPIO,
-        .max_leds = LED_COUNT,
-    };
+    /*
+     * GPIO 5 = ADC1 Channel 4 on ESP32-S3
+     */
+    adc_oneshot_unit_handle_t adc_handle;
 
-    led_strip_rmt_config_t rmt_config = {
-        .resolution_hz = 10 * 1000 * 1000,
-        .flags.with_dma = false,
+    adc_oneshot_unit_init_cfg_t init_config = {
+        .unit_id = ADC_UNIT_1,
     };
 
     ESP_ERROR_CHECK(
-        led_strip_new_rmt_device(
-            &strip_config,
-            &rmt_config,
-            &led_strip
+        adc_oneshot_new_unit(&init_config, &adc_handle)
+    );
+
+    /*
+     * Configure ADC1 Channel 4 = GPIO5
+     */
+    adc_oneshot_chan_cfg_t config = {
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+        .atten = ADC_ATTEN_DB_12,
+    };
+
+    ESP_ERROR_CHECK(
+        adc_oneshot_config_channel(
+            adc_handle,
+            ADC_CHANNEL_4,
+            &config
         )
     );
 
+    ESP_LOGI(TAG, "ADC initialized successfully");
+
     while (1)
     {
-        // RED
-        led_strip_set_pixel(led_strip, 0, 255, 0, 0);
-        led_strip_refresh(led_strip);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        int raw_value = 0;
 
-        // GREEN
-        led_strip_set_pixel(led_strip, 0, 0, 255, 0);
-        led_strip_refresh(led_strip);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        /*
+         * Read ADC
+         */
+        ESP_ERROR_CHECK(
+            adc_oneshot_read(
+                adc_handle,
+                ADC_CHANNEL_4,
+                &raw_value
+            )
+        );
 
-        // BLUE
-        led_strip_set_pixel(led_strip, 0, 0, 0, 255);
-        led_strip_refresh(led_strip);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        /*
+         * Print live reading
+         */
+        printf("FSR ADC = %d\n", raw_value);
 
-        // OFF
-        led_strip_clear(led_strip);
-        led_strip_refresh(led_strip);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
